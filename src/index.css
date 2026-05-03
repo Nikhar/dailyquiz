@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+@theme {
+  --color-paper: #FDFCF8;
+  --color-ink: #1A1A1A;
+  --color-accent: #8B4513; /* SaddleBrown */
+  --color-muted: #6B7280;
+  
+  --font-serif: "Playfair Display", serif;
+  --font-sans: "Inter", sans-serif;
+  
+  --animate-float: float 6s ease-in-out infinite;
+}
+
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+  100% { transform: translateY(0px); }
+}
+
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;600&display=swap');
+
+body {
+  @apply bg-paper text-ink font-sans antialiased selection:bg-accent/20;
+}
+
+h1, h2, h3, .serif {
+  @apply font-serif;
+}
+

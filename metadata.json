@@ -1,0 +1,6 @@
+{
+  "name": "Daily Quiz",
+  "description": "A simple daily quiz with a leaderboard and notification reminders.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
