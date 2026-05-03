@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db } from '../lib/firebase';
-import { doc, setDoc, collection, query, orderBy, getDocs, deleteDoc } from 'firebase/firestore';
+import { doc, setDoc, collection, query, orderBy, getDocs, deleteDoc, where, updateDoc, arrayUnion, runTransaction } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../App';
-import { Send, Calendar, List, Plus, Trash2, Edit3, ChevronRight } from 'lucide-react';
+import { Send, Calendar, List, Plus, Trash2, ChevronRight, ShieldAlert, Check, X } from 'lucide-react';
+import { AdminReviewFlag } from '../types';
 
 interface PastQuiz {
   id: string;
@@ -12,19 +13,23 @@ interface PastQuiz {
 }
 
 export default function Admin() {
-  const [activeTab, setActiveTab] = useState<'create' | 'list'>('list');
+  const [activeTab, setActiveTab] = useState<'create' | 'list' | 'reviews'>('list');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [question, setQuestion] = useState('');
-  const [options, setOptions] = useState(['', '', '', '']);
-  const [correctIndex, setCorrectIndex] = useState(0);
+  const [correctAnswer, setCorrectAnswer] = useState('');
   const [explanation, setExplanation] = useState('');
   const [status, setStatus] = useState<'idle' | 'loading' | 'success'>('idle');
   const [pastQuizzes, setPastQuizzes] = useState<PastQuiz[]>([]);
   const [loadingQuizzes, setLoadingQuizzes] = useState(false);
+  
+  const [pendingFlags, setPendingFlags] = useState<AdminReviewFlag[]>([]);
+  const [loadingFlags, setLoadingFlags] = useState(false);
 
   useEffect(() => {
     if (activeTab === 'list') {
       fetchPastQuizzes();
+    } else if (activeTab === 'reviews') {
+      fetchPendingFlags();
     }
   }, [activeTab]);
 
@@ -46,16 +51,33 @@ export default function Admin() {
     }
   };
 
+  const fetchPendingFlags = async () => {
+    setLoadingFlags(true);
+    try {
+      const q = query(collection(db, 'admin_reviews'), where('isPending', '==', true));
+      const snap = await getDocs(q);
+      const flagsData = snap.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as AdminReviewFlag[];
+      setPendingFlags(flagsData);
+    } catch (err) {
+      console.error("Failed to fetch pending reviews", err);
+    } finally {
+      setLoadingFlags(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setStatus('loading');
     
+    const answersArray = correctAnswer.split(',').map(a => a.trim()).filter(Boolean);
     try {
       await setDoc(doc(db, 'quizzes', date), {
         date,
         question,
-        options,
-        correctIndex,
+        correctAnswers: answersArray,
         explanation
       });
       setStatus('success');
@@ -72,8 +94,7 @@ export default function Admin() {
 
   const resetForm = () => {
     setQuestion('');
-    setOptions(['', '', '', '']);
-    setCorrectIndex(0);
+    setCorrectAnswer('');
     setExplanation('');
     setDate(new Date().toISOString().split('T')[0]);
   };
@@ -88,10 +109,55 @@ export default function Admin() {
     }
   };
 
-  const updateOption = (idx: number, val: string) => {
-    const newOptions = [...options];
-    newOptions[idx] = val;
-    setOptions(newOptions);
+  const handleApproveSynonym = async (flag: AdminReviewFlag) => {
+    try {
+      await runTransaction(db, async (transaction) => {
+        const quizRef = doc(db, 'quizzes', flag.quizDate);
+        const flagRef = doc(db, 'admin_reviews', flag.id);
+        const userRef = doc(db, 'users', flag.userId);
+        const leaderboardRef = doc(db, 'leaderboard', flag.userId);
+        const responseRef = doc(db, 'quizzes', flag.quizDate, 'responses', flag.userId);
+
+        const quizSnap = await transaction.get(quizRef);
+        const userSnap = await transaction.get(userRef);
+        if (!quizSnap.exists() || !userSnap.exists()) {
+          throw new Error("Quiz or User documents do not exist.");
+        }
+
+        const correctAnswers: string[] = quizSnap.data().correctAnswers || [];
+        const lowerAnswer = flag.submittedAnswer.toLowerCase();
+        if (!correctAnswers.some(ans => ans.toLowerCase() === lowerAnswer)) {
+          correctAnswers.push(flag.submittedAnswer);
+        }
+
+        transaction.update(quizRef, { correctAnswers });
+        transaction.update(flagRef, { isPending: false, approved: true });
+        transaction.update(responseRef, { isCorrect: true });
+
+        const currentScore = userSnap.data().score || 0;
+        const newScore = currentScore + 10;
+        transaction.update(userRef, { score: newScore });
+        transaction.update(leaderboardRef, { score: newScore });
+      });
+
+      setPendingFlags(prev => prev.filter(f => f.id !== flag.id));
+      alert("Synonym approved, scores updated, and response marked correct successfully!");
+    } catch (err) {
+      console.error("Approve transaction failed", err);
+      alert("Failed to approve synonym. Please try again.");
+    }
+  };
+
+  const handleDismissFlag = async (flagId: string) => {
+    try {
+      await updateDoc(doc(db, 'admin_reviews', flagId), {
+        isPending: false,
+        approved: false
+      });
+      setPendingFlags(prev => prev.filter(f => f.id !== flagId));
+    } catch (err) {
+      console.error("Dismiss flag failed", err);
+    }
   };
 
   const wordCount = question.trim().split(/\s+/).filter(Boolean).length;
@@ -104,12 +170,18 @@ export default function Admin() {
           <p className="text-muted italic text-lg">Manage questions and quiz history.</p>
         </div>
         
-        <div className="flex bg-paper border border-ink/10 rounded-xl p-1 p-x-2">
+        <div className="flex bg-paper border border-ink/10 rounded-xl p-1 gap-1 flex-wrap shadow-sm">
           <TabButton 
             active={activeTab === 'list'} 
             onClick={() => setActiveTab('list')}
             icon={<List size={18} />}
             label="Quiz List"
+          />
+          <TabButton 
+            active={activeTab === 'reviews'} 
+            onClick={() => setActiveTab('reviews')}
+            icon={<ShieldAlert size={18} />}
+            label="Pending Reviews"
           />
           <TabButton 
             active={activeTab === 'create'} 
@@ -121,7 +193,7 @@ export default function Admin() {
       </header>
 
       <AnimatePresence mode="wait">
-        {activeTab === 'list' ? (
+        {activeTab === 'list' && (
           <motion.div
             key="list"
             initial={{ opacity: 0, x: -10 }}
@@ -158,7 +230,73 @@ export default function Admin() {
               </div>
             )}
           </motion.div>
-        ) : (
+        )}
+
+        {activeTab === 'reviews' && (
+          <motion.div
+            key="reviews"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="space-y-6"
+          >
+            {loadingFlags ? (
+              <div className="text-center py-20 italic opacity-50">Fetching flags for review...</div>
+            ) : pendingFlags.length > 0 ? (
+              <div className="bg-white border border-ink/10 rounded-2xl overflow-hidden shadow-xl shadow-ink/5">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-paper border-b border-ink/5">
+                    <tr>
+                      <th className="px-6 py-4 text-xs uppercase tracking-widest text-muted font-bold">Date</th>
+                      <th className="px-6 py-4 text-xs uppercase tracking-widest text-muted font-bold">User</th>
+                      <th className="px-6 py-4 text-xs uppercase tracking-widest text-muted font-bold">Flagged Answer</th>
+                      <th className="px-6 py-4 text-xs uppercase tracking-widest text-muted font-bold text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-ink/5">
+                    {pendingFlags.map((flag) => (
+                      <tr key={flag.id} className="hover:bg-paper transition-colors">
+                        <td className="px-6 py-5 font-serif text-sm text-accent">{new Date(flag.quizDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</td>
+                        <td className="px-6 py-5">
+                          <div className="font-serif font-bold">{flag.username}</div>
+                          <div className="text-[10px] text-muted leading-tight font-sans max-w-sm line-clamp-1 italic">"{flag.question}"</div>
+                        </td>
+                        <td className="px-6 py-5 text-lg font-serif font-bold text-ink">"{flag.submittedAnswer}"</td>
+                        <td className="px-6 py-5 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button 
+                              onClick={() => handleApproveSynonym(flag)}
+                              title="Approve Synonym"
+                              className="p-3 bg-green-50 hover:bg-green-600 text-green-600 hover:text-white rounded-xl transition-all border border-green-100 shadow-sm flex items-center gap-1 font-serif text-sm"
+                            >
+                              <Check size={16} />
+                              <span>Approve</span>
+                            </button>
+                            <button 
+                              onClick={() => handleDismissFlag(flag.id)}
+                              title="Dismiss Review"
+                              className="p-3 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white rounded-xl transition-all border border-red-100 shadow-sm flex items-center gap-1 font-serif text-sm"
+                            >
+                              <X size={16} />
+                              <span>Reject</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-center py-20 bg-white border border-dashed border-ink/10 rounded-3xl shadow-inner">
+                <p className="text-muted italic">The moderation queue is completely clean!</p>
+                <p className="text-[10px] uppercase tracking-widest text-ink/20 mt-2 font-bold">No pending response flags for synonym review.</p>
+              </div>
+            )}
+          </motion.div>
+        )}
+
+        {activeTab === 'create' && (
           <motion.form
             key="create"
             initial={{ opacity: 0, x: 10 }}
@@ -197,31 +335,17 @@ export default function Admin() {
               </div>
             </div>
 
-            <div className="space-y-6">
-              <label className="block text-xs uppercase tracking-[0.2em] text-muted font-bold">Options</label>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {options.map((opt, idx) => (
-                  <div key={idx} className="flex items-center gap-5 p-2 pr-4 bg-paper rounded-2xl border border-ink/5">
-                    <div className="relative flex items-center justify-center pl-4">
-                      <input 
-                        type="radio" 
-                        name="correct" 
-                        required
-                        checked={correctIndex === idx}
-                        onChange={() => setCorrectIndex(idx)}
-                        className="w-6 h-6 accent-accent cursor-pointer"
-                      />
-                    </div>
-                    <input 
-                      type="text" 
-                      required
-                      value={opt}
-                      onChange={(e) => updateOption(idx, e.target.value)}
-                      placeholder={`Option ${idx + 1}`}
-                      className="flex-grow p-4 bg-transparent focus:outline-none font-serif text-lg"
-                    />
-                  </div>
-                ))}
+            <div className="space-y-4">
+              <label className="block text-xs uppercase tracking-[0.2em] text-muted font-bold">Correct Answers / Synonyms</label>
+              <div className="flex items-center gap-3 p-5 bg-paper border border-ink/5 rounded-2xl focus-within:border-accent transition-colors shadow-inner">
+                <input 
+                  type="text" 
+                  required
+                  value={correctAnswer}
+                  onChange={(e) => setCorrectAnswer(e.target.value)}
+                  placeholder="Enter accepted synonyms, separated by commas (e.g. car, auto, automobile)..."
+                  className="bg-transparent focus:outline-none font-serif text-xl w-full"
+                />
               </div>
             </div>
 

@@ -9,11 +9,24 @@ export interface User {
 export interface QuizData {
   id: number;
   question: string;
-  options: string[];
+  correctAnswers: string[];
   date: string;
+  explanation: string;
 }
 
 export interface LeaderboardEntry {
   username: string;
   score: number;
+}
+
+export interface AdminReviewFlag {
+  id: string;
+  userId: string;
+  username: string;
+  quizDate: string;
+  question: string;
+  submittedAnswer: string;
+  flaggedAt: any;
+  isPending: boolean;
+  approved: boolean;
 }
