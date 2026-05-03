@@ -26,9 +26,9 @@ export default function Navbar({ user, onLogout, onNavigate, currentView, select
           }}
           className="flex items-center gap-2 cursor-pointer group"
         >
-          <div className="w-10 h-10 bg-ink text-paper flex items-center justify-center rounded-lg font-serif text-2xl font-bold group-hover:bg-accent transition-colors">DQ</div>
+          <div className="w-10 h-10 bg-ink text-paper flex items-center justify-center rounded-lg font-serif text-2xl font-bold group-hover:bg-accent transition-colors">QN</div>
           <h1 className="hidden md:block text-2xl font-serif tracking-tight">
-            {selectedChallenge ? selectedChallenge.title : 'Daily Quiz'}
+            {selectedChallenge ? selectedChallenge.title : 'Quizzing with Nikhar'}
           </h1>
         </div>
 

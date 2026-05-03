@@ -138,7 +138,7 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               className="text-center mb-12 space-y-4"
             >
-              <h1 className="text-6xl md:text-7xl font-serif tracking-tighter">Daily Quiz</h1>
+              <h1 className="text-6xl md:text-7xl font-serif tracking-tighter">Quizzing with Nikhar</h1>
               <p className="text-xl text-muted italic max-w-lg mx-auto">One interesting question, every single day. Test your knowledge and climb the leaderboard.</p>
             </motion.div>
             <Auth onSuccess={handleAuthSuccess} />
@@ -167,7 +167,7 @@ export default function App() {
       <footer className="py-12 border-t border-ink/5 mt-auto">
         <div className="max-w-6xl mx-auto px-6 text-center space-y-4">
           <div className="text-sm font-serif italic text-muted">"Learning is a lifelong journey."</div>
-          <div className="text-[10px] uppercase tracking-widest text-ink/20">&copy; 2026 Daily Quiz. All Rights Reserved.</div>
+          <div className="text-[10px] uppercase tracking-widest text-ink/20">Developed by Nikhar &bull; &copy; 2026 All Rights Reserved.</div>
         </div>
       </footer>
     </div>
