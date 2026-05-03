@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QuizData, User, ChallengeSeries } from '../types';
 import { CheckCircle2, XCircle, Trophy, Flag, AlertCircle } from 'lucide-react';
 import { db } from '../lib/firebase';
-import { doc, getDoc, getDocs, addDoc, collection, query, where, serverTimestamp, runTransaction, orderBy } from 'firebase/firestore';
+import { doc, getDoc, getDocs, addDoc, collection, query, where, serverTimestamp, runTransaction, orderBy, onSnapshot } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../App';
 
 function calculateLevenshteinDistance(a: string, b: string): number {
@@ -54,16 +54,31 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
   const [pastQuizzesList, setPastQuizzesList] = useState<QuizData[]>([]);
   const [isPastChallenge, setIsPastChallenge] = useState(false);
 
+  // Websocket Unsubscription reference states to safeguard memory stability
+  const unsubQuiz = useRef<(() => void) | null>(null);
+  const unsubResp = useRef<(() => void) | null>(null);
+  const unsubFlag = useRef<(() => void) | null>(null);
+
+  const cleanSubscriptions = () => {
+    if (unsubQuiz.current) { unsubQuiz.current(); unsubQuiz.current = null; }
+    if (unsubResp.current) { unsubResp.current(); unsubResp.current = null; }
+    if (unsubFlag.current) { unsubFlag.current(); unsubFlag.current = null; }
+  };
+
   useEffect(() => {
     const todayStr = new Date().toISOString().split('T')[0];
     const ended = !challenge.isActive || todayStr > challenge.endDate;
     setIsPastChallenge(ended);
+    
+    cleanSubscriptions();
 
     if (ended) {
       fetchPastQuizzesArchive();
     } else {
       fetchTodayQuiz();
     }
+
+    return () => cleanSubscriptions();
   }, [challenge.id]);
 
   const fetchPastQuizzesArchive = async () => {
@@ -74,7 +89,7 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
       const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as unknown as QuizData[];
       setPastQuizzesList(list);
       if (list.length > 0) {
-        await loadQuizResponsesForDate(list[0]);
+        loadQuizResponsesForDate(list[0]);
       }
     } catch (e) {
       console.error("Failed to fetch past quizzes archive", e);
@@ -83,17 +98,17 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
     }
   };
 
-  const loadQuizResponsesForDate = async (targetQuiz: QuizData) => {
+  const loadQuizResponsesForDate = (targetQuiz: QuizData) => {
+    cleanSubscriptions();
+    
     setQuiz(targetQuiz);
     setSolved(false);
     setTypedAnswer('');
     setResult(null);
     setFlagged(false);
 
-    // Check if user solved this specific question historically in Firestore
     const responseRef = doc(db, 'challenges', challenge.id, 'quizzes', targetQuiz.date, 'responses', user.id);
-    try {
-      const responseSnap = await getDoc(responseRef);
+    unsubResp.current = onSnapshot(responseRef, (responseSnap) => {
       if (responseSnap.exists()) {
         setSolved(true);
         const respData = responseSnap.data();
@@ -102,24 +117,20 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
           explanation: targetQuiz.explanation || ''
         });
       }
-    } catch (e) {
-      console.error("Failed to fetch response records for past quiz", e);
-    }
+    }, (e) => {
+      console.error("Failed Archived responses onSnapshot subscriber stream", e);
+    });
 
-    // Check if user flagged this question historically
-    try {
-      const flagQuery = query(
-        collection(db, 'admin_reviews'),
-        where('userId', '==', user.id),
-        where('quizDate', '==', targetQuiz.date)
-      );
-      const flagSnap = await getDocs(flagQuery);
-      if (!flagSnap.empty) {
-        setFlagged(true);
-      }
-    } catch (e) {
-      console.error("Failed to fetch user flag records for past quiz", e);
-    }
+    const flagQuery = query(
+      collection(db, 'admin_reviews'),
+      where('userId', '==', user.id),
+      where('quizDate', '==', targetQuiz.date)
+    );
+    unsubFlag.current = onSnapshot(flagQuery, (flagSnap) => {
+      setFlagged(!flagSnap.empty);
+    }, (e) => {
+      console.error("Failed Archived flags onSnapshot subscriber stream", e);
+    });
   };
 
   const handleSwitchPastQuiz = (dateStr: string) => {
@@ -129,54 +140,50 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
     }
   };
 
-  const fetchTodayQuiz = async () => {
+  const fetchTodayQuiz = () => {
     const today = new Date().toISOString().split('T')[0];
     const quizPath = `challenges/${challenge.id}/quizzes/${today}`;
-    try {
-      const quizRef = doc(db, 'challenges', challenge.id, 'quizzes', today);
-      const quizSnap = await getDoc(quizRef);
-      
+    const quizRef = doc(db, 'challenges', challenge.id, 'quizzes', today);
+    
+    unsubQuiz.current = onSnapshot(quizRef, (quizSnap) => {
       if (quizSnap.exists()) {
-        setQuiz({ id: 0, ...quizSnap.data() } as any);
+        const quizData = { id: 0, ...quizSnap.data() } as QuizData;
+        setQuiz(quizData);
         
-        // Check if user solved this specific quiz within this challenge
-        const responsePath = `challenges/${challenge.id}/quizzes/${today}/responses/${user.id}`;
-        try {
-          const responseRef = doc(db, 'challenges', challenge.id, 'quizzes', today, 'responses', user.id);
-          const responseSnap = await getDoc(responseRef);
+        // Listen to Player response document in real-time Cache-First
+        const responseRef = doc(db, 'challenges', challenge.id, 'quizzes', today, 'responses', user.id);
+        unsubResp.current = onSnapshot(responseRef, (responseSnap) => {
           if (responseSnap.exists()) {
             setSolved(true);
             const respData = responseSnap.data();
-            const quizData = quizSnap.data();
             setResult({
               isCorrect: respData.isCorrect,
-              explanation: quizData.explanation
+              explanation: quizData.explanation || ''
             });
           }
-        } catch (e) {
-          handleFirestoreError(e, OperationType.GET, responsePath);
-        }
+        }, (e) => {
+          console.error("Failed response onSnapshot subscriber stream", e);
+        });
 
-        // Check if user flagged this challenge quiz response today
-        try {
-          const flagQuery = query(
-            collection(db, 'admin_reviews'),
-            where('userId', '==', user.id),
-            where('quizDate', '==', today)
-          );
-          const flagSnap = await getDocs(flagQuery);
-          if (!flagSnap.empty) {
-            setFlagged(true);
-          }
-        } catch (e) {
-          console.error("Failed to fetch user flagged flags", e);
-        }
+        // Listen to User Flag reviews today in real-time Cache-First
+        const flagQuery = query(
+          collection(db, 'admin_reviews'),
+          where('userId', '==', user.id),
+          where('quizDate', '==', today)
+        );
+        unsubFlag.current = onSnapshot(flagQuery, (flagSnap) => {
+          setFlagged(!flagSnap.empty);
+        }, (e) => {
+          console.error("Failed flagged reviews onSnapshot subscriber stream", e);
+        });
+      } else {
+        setQuiz(null);
       }
-    } catch (err) {
-      handleFirestoreError(err, OperationType.GET, quizPath);
-    } finally {
       setLoading(false);
-    }
+    }, (err) => {
+      handleFirestoreError(err, OperationType.GET, quizPath);
+      setLoading(false);
+    });
   };
 
   const handleSubmit = async () => {

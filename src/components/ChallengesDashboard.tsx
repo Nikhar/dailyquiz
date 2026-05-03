@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { db } from '../lib/firebase';
-import { collection, query, orderBy, getDocs } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { ChallengeSeries } from '../types';
 import { Calendar, Trophy, Play, CheckCircle } from 'lucide-react';
 
@@ -14,22 +14,20 @@ export default function ChallengesDashboard({ onSelectChallenge }: DashboardProp
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchChallenges = async () => {
-      try {
-        const q = query(collection(db, 'challenges'), orderBy('createdAt', 'desc'));
-        const snap = await getDocs(q);
-        const list = snap.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as ChallengeSeries[];
-        setChallenges(list);
-      } catch (e) {
-        console.error("Failed to fetch challenge series", e);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchChallenges();
+    const q = query(collection(db, 'challenges'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snap) => {
+      const list = snap.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as ChallengeSeries[];
+      setChallenges(list);
+      setLoading(false);
+    }, (error) => {
+      console.error("Failed to subscribe to challenges", error);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const todayStr = new Date().toISOString().split('T')[0];

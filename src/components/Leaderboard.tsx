@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { LeaderboardEntry, ChallengeSeries } from '../types';
 import { Medal } from 'lucide-react';
 import { db } from '../lib/firebase';
-import { collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
+import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../App';
 
 interface LeaderboardProps {
@@ -15,20 +15,19 @@ export default function Leaderboard({ challenge }: LeaderboardProps) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchLeaders = async () => {
-      const path = `challenges/${challenge.id}/leaderboard`;
-      try {
-        const q = query(collection(db, 'challenges', challenge.id, 'leaderboard'), orderBy('score', 'desc'), limit(10));
-        const snap = await getDocs(q);
-        const data = snap.docs.map(doc => doc.data() as LeaderboardEntry);
-        setEntries(data);
-      } catch (e) {
-        handleFirestoreError(e, OperationType.LIST, path);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchLeaders();
+    const path = `challenges/${challenge.id}/leaderboard`;
+    const q = query(collection(db, 'challenges', challenge.id, 'leaderboard'), orderBy('score', 'desc'), limit(10));
+    
+    const unsubscribe = onSnapshot(q, (snap) => {
+      const data = snap.docs.map(doc => doc.data() as LeaderboardEntry);
+      setEntries(data);
+      setLoading(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, path);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, [challenge.id]);
 
   if (loading) return <div className="text-center py-20 font-serif italic opacity-50">Consulting the leaderboard...</div>;
