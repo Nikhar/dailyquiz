@@ -33,6 +33,15 @@ export default function Leaderboard({ challenge }: LeaderboardProps) {
 
   if (loading) return <div className="text-center py-20 font-serif italic opacity-50">Consulting the leaderboard...</div>;
 
+  // Pre-compute shared Olympics ranks (with gaps) for tied scores
+  let currentRank = 1;
+  const computedRanks = entries.map((entry, idx) => {
+    if (idx > 0 && entry.score !== entries[idx - 1].score) {
+      currentRank = idx + 1;
+    }
+    return currentRank;
+  });
+
   return (
     <div className="max-w-2xl mx-auto py-12 px-6">
       <header className="text-center mb-12">
@@ -50,29 +59,34 @@ export default function Leaderboard({ challenge }: LeaderboardProps) {
             </tr>
           </thead>
           <tbody className="divide-y divide-ink/5">
-            {entries.length > 0 ? entries.map((entry, idx) => (
-              <motion.tr
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: idx * 0.05 }}
-                key={entry.username}
-                className="group hover:bg-paper transition-colors"
-              >
-                <td className="px-8 py-6 font-serif text-xl">
-                  {idx === 0 && <Medal className="w-6 h-6 text-amber-500 inline-block mr-2" />}
-                  {idx === 1 && <Medal className="w-6 h-6 text-slate-400 inline-block mr-2" />}
-                  {idx === 2 && <Medal className="w-6 h-6 text-amber-700 inline-block mr-2" />}
-                  {idx + 1}
-                </td>
-                <td className="px-8 py-6">
-                  <div className="font-serif text-lg">{entry.username}</div>
-                  {idx < 3 && <span className="text-[10px] uppercase tracking-tighter text-accent font-bold">Top Player</span>}
-                </td>
-                <td className="px-8 py-6 text-right font-serif text-2xl tabular-nums">
-                  {entry.score}
-                </td>
-              </motion.tr>
-            )) : (
+            {entries.length > 0 ? entries.map((entry, idx) => {
+              const rank = computedRanks[idx];
+              const isPodium = rank <= 3;
+              
+              return (
+                <motion.tr
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: idx * 0.05 }}
+                  key={entry.username}
+                  className="group hover:bg-paper transition-colors"
+                >
+                  <td className="px-8 py-6 font-serif text-xl">
+                    {rank === 1 && <Medal className="w-6 h-6 text-amber-500 inline-block mr-2 shrink-0" />}
+                    {rank === 2 && <Medal className="w-6 h-6 text-slate-400 inline-block mr-2 shrink-0" />}
+                    {rank === 3 && <Medal className="w-6 h-6 text-amber-700 inline-block mr-2 shrink-0" />}
+                    <span>{rank}</span>
+                  </td>
+                  <td className="px-8 py-6">
+                    <div className="font-serif text-lg">{entry.username}</div>
+                    {isPodium && <span className="text-[10px] uppercase tracking-tighter text-accent font-bold">Top Player</span>}
+                  </td>
+                  <td className="px-8 py-6 text-right font-serif text-2xl tabular-nums">
+                    {entry.score}
+                  </td>
+                </motion.tr>
+              );
+            }) : (
                <tr>
                 <td colSpan={3} className="px-8 py-12 text-center text-muted italic">The halls are quiet today...</td>
               </tr>

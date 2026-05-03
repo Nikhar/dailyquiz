@@ -12,7 +12,7 @@ export interface QuizData {
   question: string;
   correctAnswers: string[];
   date: string;
-  explanation: string;
+  explanation?: string;
 }
 
 export interface LeaderboardEntry {

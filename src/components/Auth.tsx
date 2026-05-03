@@ -38,10 +38,6 @@ export default function Auth({ onSuccess }: AuthProps) {
           solved_today: false
         };
         await setDoc(userRef, userData);
-        await setDoc(doc(db, 'leaderboard', fbUser.uid), {
-          username: userData.username,
-          score: 0
-        });
       } else {
         const data = userSnap.data();
         userData = {

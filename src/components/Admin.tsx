@@ -667,10 +667,9 @@ export default function Admin() {
             <div className="space-y-4">
               <label className="block text-xs uppercase tracking-[0.2em] text-muted font-bold">Explanation</label>
               <textarea 
-                required
                 value={explanation}
                 onChange={(e) => setExplanation(e.target.value)}
-                placeholder="Explain the correct answer..."
+                placeholder="Explain the correct answer (optional)..."
                 className="w-full h-40 p-8 bg-paper border border-ink/5 rounded-3xl focus:outline-none focus:border-accent font-serif text-xl leading-relaxed shadow-inner"
               />
             </div>

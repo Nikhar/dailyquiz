@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { QuizData, User, ChallengeSeries } from '../types';
 import { CheckCircle2, XCircle, Trophy, Flag, AlertCircle } from 'lucide-react';
 import { db } from '../lib/firebase';
-import { doc, getDoc, getDocs, addDoc, collection, query, where, serverTimestamp, runTransaction } from 'firebase/firestore';
+import { doc, getDoc, getDocs, addDoc, collection, query, where, serverTimestamp, runTransaction, orderBy } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../App';
 
 function calculateLevenshteinDistance(a: string, b: string): number {
@@ -49,10 +49,85 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
   
   const [flagged, setFlagged] = useState(false);
   const [flagLoading, setFlagLoading] = useState(false);
+  
+  // Completed/Past series archive states
+  const [pastQuizzesList, setPastQuizzesList] = useState<QuizData[]>([]);
+  const [isPastChallenge, setIsPastChallenge] = useState(false);
 
   useEffect(() => {
-    fetchTodayQuiz();
-  }, []);
+    const todayStr = new Date().toISOString().split('T')[0];
+    const ended = !challenge.isActive || todayStr > challenge.endDate;
+    setIsPastChallenge(ended);
+
+    if (ended) {
+      fetchPastQuizzesArchive();
+    } else {
+      fetchTodayQuiz();
+    }
+  }, [challenge.id]);
+
+  const fetchPastQuizzesArchive = async () => {
+    setLoading(true);
+    try {
+      const q = query(collection(db, 'challenges', challenge.id, 'quizzes'), orderBy('date', 'asc'));
+      const snap = await getDocs(q);
+      const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as unknown as QuizData[];
+      setPastQuizzesList(list);
+      if (list.length > 0) {
+        await loadQuizResponsesForDate(list[0]);
+      }
+    } catch (e) {
+      console.error("Failed to fetch past quizzes archive", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadQuizResponsesForDate = async (targetQuiz: QuizData) => {
+    setQuiz(targetQuiz);
+    setSolved(false);
+    setTypedAnswer('');
+    setResult(null);
+    setFlagged(false);
+
+    // Check if user solved this specific question historically in Firestore
+    const responseRef = doc(db, 'challenges', challenge.id, 'quizzes', targetQuiz.date, 'responses', user.id);
+    try {
+      const responseSnap = await getDoc(responseRef);
+      if (responseSnap.exists()) {
+        setSolved(true);
+        const respData = responseSnap.data();
+        setResult({
+          isCorrect: respData.isCorrect,
+          explanation: targetQuiz.explanation || ''
+        });
+      }
+    } catch (e) {
+      console.error("Failed to fetch response records for past quiz", e);
+    }
+
+    // Check if user flagged this question historically
+    try {
+      const flagQuery = query(
+        collection(db, 'admin_reviews'),
+        where('userId', '==', user.id),
+        where('quizDate', '==', targetQuiz.date)
+      );
+      const flagSnap = await getDocs(flagQuery);
+      if (!flagSnap.empty) {
+        setFlagged(true);
+      }
+    } catch (e) {
+      console.error("Failed to fetch user flag records for past quiz", e);
+    }
+  };
+
+  const handleSwitchPastQuiz = (dateStr: string) => {
+    const foundQuiz = pastQuizzesList.find(q => q.date === dateStr);
+    if (foundQuiz) {
+      loadQuizResponsesForDate(foundQuiz);
+    }
+  };
 
   const fetchTodayQuiz = async () => {
     const today = new Date().toISOString().split('T')[0];
@@ -106,6 +181,22 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
 
   const handleSubmit = async () => {
     if (!typedAnswer.trim() || !quiz) return;
+
+    const correctAnswers: string[] = quiz.correctAnswers || [];
+    const lowerInput = typedAnswer.trim().toLowerCase();
+    const isCorrect = correctAnswers.some(ans => checkSimilarity(lowerInput, ans.toLowerCase()) > 0.85);
+
+    // 🛡️ Freezing database score updates if solving an archived/past challenge quiz
+    if (isPastChallenge) {
+      setResult({
+        isCorrect,
+        explanation: quiz.explanation || ''
+      });
+      setSolved(true);
+      return;
+    }
+
+    // Otherwise, proceed with live Firestore score submission transaction:
     const today = new Date().toISOString().split('T')[0];
     const writePath = `multiple: users/${user.id}, challenges/${challenge.id}/leaderboard/${user.id}, challenges/${challenge.id}/quizzes/${today}/responses/${user.id}`;
     
@@ -114,10 +205,6 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
         const userRef = doc(db, 'users', user.id);
         const leaderboardRef = doc(db, 'challenges', challenge.id, 'leaderboard', user.id);
         const responseRef = doc(db, 'challenges', challenge.id, 'quizzes', today, 'responses', user.id);
-
-        const correctAnswers: string[] = quiz.correctAnswers || [];
-        const lowerInput = typedAnswer.trim().toLowerCase();
-        const isCorrect = correctAnswers.some(ans => checkSimilarity(lowerInput, ans.toLowerCase()) > 0.85);
 
         const scoreInc = isCorrect ? 10 : 0;
         
@@ -150,7 +237,7 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
 
         setResult({
           isCorrect,
-          explanation: quiz.explanation
+          explanation: quiz.explanation || ''
         });
         setSolved(true);
         onUpdateUser({ score: newGlobalScore, solved_today: true });
@@ -163,13 +250,15 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
   const handleFlagForReview = async () => {
     if (flagged || !quiz) return;
     setFlagLoading(true);
-    const today = new Date().toISOString().split('T')[0];
+    
+    // Target either past quiz date or today dynamically
+    const flagDate = isPastChallenge ? quiz.date : new Date().toISOString().split('T')[0];
     try {
       await addDoc(collection(db, 'admin_reviews'), {
         userId: user.id,
         challengeId: challenge.id,
         username: user.username,
-        quizDate: today,
+        quizDate: flagDate,
         question: quiz.question,
         submittedAnswer: typedAnswer,
         flaggedAt: serverTimestamp(),
@@ -186,11 +275,28 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
     }
   };
 
-  if (loading) return <div className="text-center py-20 font-serif italic opacity-50">Loading today's quiz...</div>;
-  if (!quiz) return <div className="text-center py-20 font-serif opacity-50">No question found for today. Check back later!</div>;
+  if (loading) return <div className="text-center py-20 font-serif italic opacity-50">Loading series questions...</div>;
+  if (!quiz) return <div className="text-center py-20 font-serif opacity-50">No question found for this challenge series. Check back later!</div>;
 
   return (
-    <div className="max-w-3xl mx-auto py-12 px-6">
+    <div className="max-w-3xl mx-auto py-12 px-6 animate-fadeIn">
+      {isPastChallenge && pastQuizzesList.length > 0 && (
+        <div className="flex items-center gap-4 mb-12 p-4 bg-white rounded-xl border border-ink/5 shadow-sm max-w-md mx-auto">
+          <span className="text-xs uppercase tracking-wider text-muted font-bold shrink-0">Select Question:</span>
+          <select
+            value={quiz?.date}
+            onChange={(e) => handleSwitchPastQuiz(e.target.value)}
+            className="bg-transparent font-serif font-bold text-accent text-lg focus:outline-none w-full cursor-pointer"
+          >
+            {pastQuizzesList.map((q, idx) => (
+              <option key={q.date} value={q.date}>
+                Day {idx + 1} ({new Date(q.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -198,7 +304,7 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
       >
         <header className="text-center space-y-4">
           <div className="text-xs uppercase tracking-[0.3em] text-muted">Quiz for {new Date(quiz.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
-          <h2 className="text-4xl md:text-5xl font-serif text-ink leading-tight">Today's Question</h2>
+          <h2 className="text-4xl md:text-5xl font-serif text-ink leading-tight">✍️ Series Question</h2>
           <div className="w-24 h-px bg-ink/10 mx-auto"></div>
         </header>
 
@@ -256,9 +362,11 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
                 )}
               </div>
               
-              <p className="text-ink/70 leading-relaxed italic text-lg border-l-4 border-ink/10 pl-6">
-                {result.explanation}
-              </p>
+              {result.explanation && (
+                <p className="text-ink/70 leading-relaxed italic text-lg border-l-4 border-ink/10 pl-6">
+                  {result.explanation}
+                </p>
+              )}
               
               <div className="text-center pt-4">
                 <div className="text-xs uppercase tracking-widest text-muted">Points</div>
