@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db } from '../lib/firebase';
-import { doc, setDoc, collection, query, orderBy, getDocs, deleteDoc, where, updateDoc, arrayUnion, runTransaction } from 'firebase/firestore';
+import { doc, setDoc, collection, query, orderBy, getDocs, deleteDoc, where, updateDoc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../App';
-import { Send, Calendar, List, Plus, Trash2, ChevronRight, ShieldAlert, Check, X } from 'lucide-react';
-import { AdminReviewFlag } from '../types';
+import { Send, Calendar, List, Plus, Trash2, ChevronRight, ShieldAlert, Check, X, Trophy } from 'lucide-react';
+import { AdminReviewFlag, ChallengeSeries } from '../types';
 
 interface PastQuiz {
   id: string;
@@ -13,17 +13,34 @@ interface PastQuiz {
 }
 
 export default function Admin() {
-  const [activeTab, setActiveTab] = useState<'create' | 'list' | 'reviews'>('list');
+  const [activeTab, setActiveTab] = useState<'create' | 'list' | 'reviews' | 'create_series'>('list');
+  
+  // Series management states
+  const [seriesTitle, setSeriesTitle] = useState('');
+  const [seriesDesc, setSeriesDesc] = useState('');
+  const [seriesStart, setSeriesStart] = useState(new Date().toISOString().split('T')[0]);
+  const [seriesEnd, setSeriesEnd] = useState(new Date().toISOString().split('T')[0]);
+  const [seriesStatus, setSeriesStatus] = useState<'idle' | 'loading' | 'success'>('idle');
+  
+  // Quizzes States
+  const [challengesList, setChallengesList] = useState<ChallengeSeries[]>([]);
+  const [targetChallengeId, setTargetChallengeId] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [question, setQuestion] = useState('');
   const [correctAnswer, setCorrectAnswer] = useState('');
   const [explanation, setExplanation] = useState('');
   const [status, setStatus] = useState<'idle' | 'loading' | 'success'>('idle');
+  
   const [pastQuizzes, setPastQuizzes] = useState<PastQuiz[]>([]);
   const [loadingQuizzes, setLoadingQuizzes] = useState(false);
   
   const [pendingFlags, setPendingFlags] = useState<AdminReviewFlag[]>([]);
   const [loadingFlags, setLoadingFlags] = useState(false);
+
+  // General startup fetching
+  useEffect(() => {
+    fetchChallenges();
+  }, []);
 
   useEffect(() => {
     if (activeTab === 'list') {
@@ -31,12 +48,26 @@ export default function Admin() {
     } else if (activeTab === 'reviews') {
       fetchPendingFlags();
     }
-  }, [activeTab]);
+  }, [activeTab, targetChallengeId]);
+
+  const fetchChallenges = async () => {
+    try {
+      const snap = await getDocs(query(collection(db, 'challenges'), orderBy('createdAt', 'desc')));
+      const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as ChallengeSeries[];
+      setChallengesList(list);
+      if (list.length > 0 && !targetChallengeId) {
+        setTargetChallengeId(list[0].id);
+      }
+    } catch (e) {
+      console.error("Failed to fetch challenge series", e);
+    }
+  };
 
   const fetchPastQuizzes = async () => {
+    if (!targetChallengeId) return;
     setLoadingQuizzes(true);
     try {
-      const q = query(collection(db, 'quizzes'), orderBy('date', 'desc'));
+      const q = query(collection(db, 'challenges', targetChallengeId, 'quizzes'), orderBy('date', 'desc'));
       const snap = await getDocs(q);
       const quizzes = snap.docs.map(doc => ({
         id: doc.id,
@@ -68,13 +99,47 @@ export default function Admin() {
     }
   };
 
+  const handleCreateSeries = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSeriesStatus('loading');
+    const seriesId = seriesTitle.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-');
+
+    try {
+      await setDoc(doc(db, 'challenges', seriesId), {
+        title: seriesTitle,
+        description: seriesDesc,
+        startDate: seriesStart,
+        endDate: seriesEnd,
+        isActive: true,
+        createdAt: serverTimestamp()
+      });
+      setSeriesStatus('success');
+      setTimeout(() => {
+        setSeriesStatus('idle');
+        setSeriesTitle('');
+        setSeriesDesc('');
+        setSeriesStart(new Date().toISOString().split('T')[0]);
+        setSeriesEnd(new Date().toISOString().split('T')[0]);
+        fetchChallenges();
+        setActiveTab('list');
+      }, 1500);
+    } catch (e) {
+      console.error("Failed to create series", e);
+      setSeriesStatus('idle');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!targetChallengeId) {
+      alert("Please create a Challenge Series first.");
+      return;
+    }
     setStatus('loading');
     
     const answersArray = correctAnswer.split(',').map(a => a.trim()).filter(Boolean);
     try {
-      await setDoc(doc(db, 'quizzes', date), {
+      await setDoc(doc(db, 'challenges', targetChallengeId, 'quizzes', date), {
         date,
         question,
         correctAnswers: answersArray,
@@ -85,9 +150,10 @@ export default function Admin() {
         setStatus('idle');
         setActiveTab('list');
         resetForm();
+        fetchPastQuizzes();
       }, 1500);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `quizzes/${date}`);
+      handleFirestoreError(err, OperationType.WRITE, `challenges/${targetChallengeId}/quizzes/${date}`);
       setStatus('idle');
     }
   };
@@ -100,23 +166,24 @@ export default function Admin() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this quiz?")) return;
+    if (!targetChallengeId) return;
+    if (!confirm("Are you sure you want to delete this quiz question?")) return;
     try {
-      await deleteDoc(doc(db, 'quizzes', id));
+      await deleteDoc(doc(db, 'challenges', targetChallengeId, 'quizzes', id));
       setPastQuizzes(prev => prev.filter(q => q.id !== id));
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `quizzes/${id}`);
+      handleFirestoreError(err, OperationType.DELETE, `challenges/${targetChallengeId}/quizzes/${id}`);
     }
   };
 
   const handleApproveSynonym = async (flag: AdminReviewFlag) => {
     try {
       await runTransaction(db, async (transaction) => {
-        const quizRef = doc(db, 'quizzes', flag.quizDate);
+        const quizRef = doc(db, 'challenges', flag.challengeId, 'quizzes', flag.quizDate);
         const flagRef = doc(db, 'admin_reviews', flag.id);
         const userRef = doc(db, 'users', flag.userId);
-        const leaderboardRef = doc(db, 'leaderboard', flag.userId);
-        const responseRef = doc(db, 'quizzes', flag.quizDate, 'responses', flag.userId);
+        const leaderboardRef = doc(db, 'challenges', flag.challengeId, 'leaderboard', flag.userId);
+        const responseRef = doc(db, 'challenges', flag.challengeId, 'quizzes', flag.quizDate, 'responses', flag.userId);
 
         const quizSnap = await transaction.get(quizRef);
         const userSnap = await transaction.get(userRef);
@@ -134,14 +201,23 @@ export default function Admin() {
         transaction.update(flagRef, { isPending: false, approved: true });
         transaction.update(responseRef, { isCorrect: true });
 
-        const currentScore = userSnap.data().score || 0;
-        const newScore = currentScore + 10;
-        transaction.update(userRef, { score: newScore });
-        transaction.update(leaderboardRef, { score: newScore });
+        const leaderboardSnap = await transaction.get(leaderboardRef);
+        const currentChallengeScore = leaderboardSnap.exists() ? (leaderboardSnap.data().score || 0) : 0;
+        const newChallengeScore = currentChallengeScore + 10;
+
+        transaction.set(leaderboardRef, {
+          username: flag.username,
+          score: newChallengeScore
+        }, { merge: true });
+
+        const globalScore = userSnap.data().score || 0;
+        transaction.update(userRef, {
+          score: globalScore + 10
+        });
       });
 
       setPendingFlags(prev => prev.filter(f => f.id !== flag.id));
-      alert("Synonym approved, scores updated, and response marked correct successfully!");
+      alert("Synonym approved, scoped leaderboard points updated, and response marked correct!");
     } catch (err) {
       console.error("Approve transaction failed", err);
       alert("Failed to approve synonym. Please try again.");
@@ -167,7 +243,7 @@ export default function Admin() {
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
         <div>
           <h2 className="text-5xl font-serif mb-2 tracking-tight">Admin Dashboard</h2>
-          <p className="text-muted italic text-lg">Manage questions and quiz history.</p>
+          <p className="text-muted italic text-lg">Manage challenges, questions, and moderation review queues.</p>
         </div>
         
         <div className="flex bg-paper border border-ink/10 rounded-xl p-1 gap-1 flex-wrap shadow-sm">
@@ -184,13 +260,35 @@ export default function Admin() {
             label="Pending Reviews"
           />
           <TabButton 
+            active={activeTab === 'create_series'} 
+            onClick={() => setActiveTab('create_series')}
+            icon={<Trophy size={18} />}
+            label="Manage Series"
+          />
+          <TabButton 
             active={activeTab === 'create'} 
             onClick={() => setActiveTab('create')}
             icon={<Plus size={18} />}
-            label="Create New"
+            label="Create Quiz"
           />
         </div>
       </header>
+
+      {/* Active Tab Filtering Info for Questions Browsing */}
+      {activeTab === 'list' && challengesList.length > 0 && (
+        <div className="flex items-center gap-4 mb-8 p-4 bg-white rounded-xl border border-ink/5 shadow-sm max-w-md">
+          <span className="text-xs uppercase tracking-wider text-muted font-bold shrink-0">Active Filter:</span>
+          <select
+            value={targetChallengeId}
+            onChange={(e) => setTargetChallengeId(e.target.value)}
+            className="bg-transparent font-serif font-bold text-accent text-lg focus:outline-none w-full cursor-pointer"
+          >
+            {challengesList.map(c => (
+              <option key={c.id} value={c.id}>{c.title}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <AnimatePresence mode="wait">
         {activeTab === 'list' && (
@@ -202,7 +300,7 @@ export default function Admin() {
             className="space-y-6"
           >
             {loadingQuizzes ? (
-              <div className="text-center py-20 italic opacity-50">Loading quizzes...</div>
+              <div className="text-center py-20 italic opacity-50">Loading quizzes for selected series...</div>
             ) : pastQuizzes.length > 0 ? (
               <div className="grid gap-4">
                 {pastQuizzes.map((q) => (
@@ -225,7 +323,7 @@ export default function Admin() {
               </div>
             ) : (
               <div className="text-center py-20 bg-white border border-dashed border-ink/10 rounded-3xl">
-                <p className="text-muted italic mb-4">No quizzes found.</p>
+                <p className="text-muted italic mb-4">No questions published under this series yet.</p>
                 <button onClick={() => setActiveTab('create')} className="text-accent underline underline-offset-4">Create the first one</button>
               </div>
             )}
@@ -296,6 +394,90 @@ export default function Admin() {
           </motion.div>
         )}
 
+        {activeTab === 'create_series' && (
+          <motion.form
+            key="create_series"
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 10 }}
+            onSubmit={handleCreateSeries}
+            className="bg-white border border-ink/10 rounded-3xl p-10 shadow-xl shadow-ink/5 space-y-10"
+          >
+            <div className="space-y-4">
+              <label className="block text-xs uppercase tracking-[0.2em] text-muted font-bold">Series Title</label>
+              <div className="flex items-center gap-3 p-5 bg-paper border border-ink/5 rounded-2xl focus-within:border-accent transition-colors">
+                <Trophy className="text-accent" size={24} />
+                <input 
+                  type="text" 
+                  required
+                  value={seriesTitle}
+                  onChange={(e) => setSeriesTitle(e.target.value)}
+                  placeholder="e.g. March Challenge, 7-Day Difficult Challenge..."
+                  className="bg-transparent focus:outline-none font-serif text-xl w-full"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <label className="block text-xs uppercase tracking-[0.2em] text-muted font-bold">Series Description</label>
+              <textarea 
+                required
+                value={seriesDesc}
+                onChange={(e) => setSeriesDesc(e.target.value)}
+                placeholder="Enter the challenge series description and goal..."
+                className="w-full h-32 p-6 bg-paper border border-ink/5 rounded-2xl focus:outline-none focus:border-accent font-serif text-lg leading-relaxed"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-4">
+                <label className="block text-xs uppercase tracking-[0.2em] text-muted font-bold">Start Date</label>
+                <div className="flex items-center gap-3 p-5 bg-paper border border-ink/5 rounded-2xl focus-within:border-accent transition-colors">
+                  <Calendar className="text-accent" size={24} />
+                  <input 
+                    type="date" 
+                    required
+                    value={seriesStart}
+                    onChange={(e) => setSeriesStart(e.target.value)}
+                    className="bg-transparent focus:outline-none font-serif text-xl w-full"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <label className="block text-xs uppercase tracking-[0.2em] text-muted font-bold">End Date</label>
+                <div className="flex items-center gap-3 p-5 bg-paper border border-ink/5 rounded-2xl focus-within:border-accent transition-colors">
+                  <Calendar className="text-accent" size={24} />
+                  <input 
+                    type="date" 
+                    required
+                    value={seriesEnd}
+                    onChange={(e) => setSeriesEnd(e.target.value)}
+                    className="bg-transparent focus:outline-none font-serif text-xl w-full"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <motion.button
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.99 }}
+              disabled={seriesStatus === 'loading'}
+              type="submit"
+              className={`w-full py-8 rounded-2xl font-serif text-3xl flex items-center justify-center gap-4 transition-all shadow-2xl
+                ${seriesStatus === 'success' ? 'bg-green-600 text-white' : 'bg-ink text-paper'}
+              `}
+            >
+              {seriesStatus === 'loading' ? 'Creating Series...' : seriesStatus === 'success' ? 'Series Created!' : (
+                <>
+                  <Plus size={28} />
+                  Create Challenge Series
+                </>
+              )}
+            </motion.button>
+          </motion.form>
+        )}
+
         {activeTab === 'create' && (
           <motion.form
             key="create"
@@ -306,6 +488,26 @@ export default function Admin() {
             className="bg-white border border-ink/10 rounded-3xl p-10 shadow-xl shadow-ink/5 space-y-10"
           >
             <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+              {/* Dynamic Target Series Selector */}
+              <div className="space-y-4">
+                <label className="block text-xs uppercase tracking-[0.2em] text-muted font-bold">Target Challenge Series</label>
+                <div className="flex items-center gap-3 p-5 bg-paper border border-ink/5 rounded-2xl focus-within:border-accent transition-colors">
+                  <Trophy className="text-accent" size={24} />
+                  <select
+                    required
+                    value={targetChallengeId}
+                    onChange={(e) => setTargetChallengeId(e.target.value)}
+                    className="bg-transparent focus:outline-none font-serif text-xl w-full cursor-pointer"
+                  >
+                    {challengesList.length > 0 ? challengesList.map(c => (
+                      <option key={c.id} value={c.id}>{c.title}</option>
+                    )) : (
+                      <option value="">-- Create a Series First --</option>
+                    )}
+                  </select>
+                </div>
+              </div>
+
               <div className="space-y-4">
                 <label className="block text-xs uppercase tracking-[0.2em] text-muted font-bold">Quiz Date</label>
                 <div className="flex items-center gap-3 p-5 bg-paper border border-ink/5 rounded-2xl focus-within:border-accent transition-colors">

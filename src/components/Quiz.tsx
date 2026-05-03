@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { QuizData, User } from '../types';
+import { QuizData, User, ChallengeSeries } from '../types';
 import { CheckCircle2, XCircle, Trophy, Flag, AlertCircle } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { doc, getDoc, getDocs, addDoc, collection, query, where, serverTimestamp, runTransaction } from 'firebase/firestore';
@@ -37,9 +37,10 @@ function checkSimilarity(wordA: string, wordB: string): number {
 interface QuizProps {
   user: User;
   onUpdateUser: (updates: Partial<User>) => void;
+  challenge: ChallengeSeries;
 }
 
-export default function Quiz({ user, onUpdateUser }: QuizProps) {
+export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
   const [quiz, setQuiz] = useState<QuizData | null>(null);
   const [solved, setSolved] = useState(false);
   const [typedAnswer, setTypedAnswer] = useState('');
@@ -55,18 +56,18 @@ export default function Quiz({ user, onUpdateUser }: QuizProps) {
 
   const fetchTodayQuiz = async () => {
     const today = new Date().toISOString().split('T')[0];
-    const quizPath = `quizzes/${today}`;
+    const quizPath = `challenges/${challenge.id}/quizzes/${today}`;
     try {
-      const quizRef = doc(db, 'quizzes', today);
+      const quizRef = doc(db, 'challenges', challenge.id, 'quizzes', today);
       const quizSnap = await getDoc(quizRef);
       
       if (quizSnap.exists()) {
         setQuiz({ id: 0, ...quizSnap.data() } as any);
         
-        // Check if user solved this specific quiz
-        const responsePath = `quizzes/${today}/responses/${user.id}`;
+        // Check if user solved this specific quiz within this challenge
+        const responsePath = `challenges/${challenge.id}/quizzes/${today}/responses/${user.id}`;
         try {
-          const responseRef = doc(db, 'quizzes', today, 'responses', user.id);
+          const responseRef = doc(db, 'challenges', challenge.id, 'quizzes', today, 'responses', user.id);
           const responseSnap = await getDoc(responseRef);
           if (responseSnap.exists()) {
             setSolved(true);
@@ -81,7 +82,7 @@ export default function Quiz({ user, onUpdateUser }: QuizProps) {
           handleFirestoreError(e, OperationType.GET, responsePath);
         }
 
-        // Check if user flagged a flag today
+        // Check if user flagged this challenge quiz response today
         try {
           const flagQuery = query(
             collection(db, 'admin_reviews'),
@@ -106,21 +107,30 @@ export default function Quiz({ user, onUpdateUser }: QuizProps) {
   const handleSubmit = async () => {
     if (!typedAnswer.trim() || !quiz) return;
     const today = new Date().toISOString().split('T')[0];
-    const writePath = `multiple: users/${user.id}, leaderboard/${user.id}, quizzes/${today}/responses/${user.id}`;
+    const writePath = `multiple: users/${user.id}, challenges/${challenge.id}/leaderboard/${user.id}, challenges/${challenge.id}/quizzes/${today}/responses/${user.id}`;
     
     try {
       await runTransaction(db, async (transaction) => {
         const userRef = doc(db, 'users', user.id);
-        const leaderboardRef = doc(db, 'leaderboard', user.id);
-        const responseRef = doc(db, 'quizzes', today, 'responses', user.id);
+        const leaderboardRef = doc(db, 'challenges', challenge.id, 'leaderboard', user.id);
+        const responseRef = doc(db, 'challenges', challenge.id, 'quizzes', today, 'responses', user.id);
 
         const correctAnswers: string[] = quiz.correctAnswers || [];
         const lowerInput = typedAnswer.trim().toLowerCase();
         const isCorrect = correctAnswers.some(ans => checkSimilarity(lowerInput, ans.toLowerCase()) > 0.85);
 
         const scoreInc = isCorrect ? 10 : 0;
-        const newScore = user.score + scoreInc;
+        
+        // 1. Perform ALL reads first
+        const userSnap = await transaction.get(userRef);
+        const leaderboardSnap = await transaction.get(leaderboardRef);
 
+        // 2. Process data state calculations
+        const newGlobalScore = (userSnap.exists() ? (userSnap.data().score || 0) : user.score) + scoreInc;
+        const currentChallengeScore = leaderboardSnap.exists() ? (leaderboardSnap.data().score || 0) : 0;
+        const newChallengeScore = currentChallengeScore + scoreInc;
+
+        // 3. Queue standard database writes
         transaction.set(responseRef, {
           userId: user.id,
           quizId: today,
@@ -129,20 +139,21 @@ export default function Quiz({ user, onUpdateUser }: QuizProps) {
         });
 
         transaction.update(userRef, {
-          score: newScore,
+          score: newGlobalScore,
           last_solved_at: today
         });
 
-        transaction.update(leaderboardRef, {
-          score: newScore
-        });
+        transaction.set(leaderboardRef, {
+          username: user.username,
+          score: newChallengeScore
+        }, { merge: true });
 
         setResult({
           isCorrect,
           explanation: quiz.explanation
         });
         setSolved(true);
-        onUpdateUser({ score: newScore, solved_today: true });
+        onUpdateUser({ score: newGlobalScore, solved_today: true });
       });
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, writePath);
@@ -156,6 +167,7 @@ export default function Quiz({ user, onUpdateUser }: QuizProps) {
     try {
       await addDoc(collection(db, 'admin_reviews'), {
         userId: user.id,
+        challengeId: challenge.id,
         username: user.username,
         quizDate: today,
         question: quiz.question,

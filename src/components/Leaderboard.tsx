@@ -1,20 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { LeaderboardEntry } from '../types';
+import { LeaderboardEntry, ChallengeSeries } from '../types';
 import { Medal } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../App';
 
-export default function Leaderboard() {
+interface LeaderboardProps {
+  challenge: ChallengeSeries;
+}
+
+export default function Leaderboard({ challenge }: LeaderboardProps) {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchLeaders = async () => {
-      const path = 'leaderboard';
+      const path = `challenges/${challenge.id}/leaderboard`;
       try {
-        const q = query(collection(db, path), orderBy('score', 'desc'), limit(10));
+        const q = query(collection(db, 'challenges', challenge.id, 'leaderboard'), orderBy('score', 'desc'), limit(10));
         const snap = await getDocs(q);
         const data = snap.docs.map(doc => doc.data() as LeaderboardEntry);
         setEntries(data);
@@ -25,15 +29,15 @@ export default function Leaderboard() {
       }
     };
     fetchLeaders();
-  }, []);
+  }, [challenge.id]);
 
   if (loading) return <div className="text-center py-20 font-serif italic opacity-50">Consulting the leaderboard...</div>;
 
   return (
     <div className="max-w-2xl mx-auto py-12 px-6">
       <header className="text-center mb-12">
-        <h2 className="text-4xl font-serif mb-2 tracking-tight">Leaderboard</h2>
-        <p className="text-muted italic text-center">Top players of all time.</p>
+        <h2 className="text-4xl font-serif mb-2 tracking-tight">Series Leaderboard</h2>
+        <p className="text-muted italic text-center">Top players for {challenge.title}.</p>
       </header>
 
       <div className="bg-white border border-ink/10 rounded-2xl overflow-hidden shadow-xl shadow-ink/5">

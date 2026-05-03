@@ -6,7 +6,8 @@ import Quiz from './components/Quiz';
 import Leaderboard from './components/Leaderboard';
 import NotificationSettings from './components/NotificationSettings';
 import Admin from './components/Admin';
-import { User } from './types';
+import ChallengesDashboard from './components/ChallengesDashboard';
+import { User, ChallengeSeries } from './types';
 import { auth, db } from './lib/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
@@ -51,7 +52,8 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
-  const [view, setView] = useState<'quiz' | 'leaderboard' | 'notifs' | 'admin'>('quiz');
+  const [view, setView] = useState<'dashboard' | 'quiz' | 'leaderboard' | 'notifs' | 'admin'>('dashboard');
+  const [selectedChallenge, setSelectedChallenge] = useState<ChallengeSeries | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
@@ -93,6 +95,18 @@ export default function App() {
   const handleLogout = async () => {
     await signOut(auth);
     setUser(null);
+    setSelectedChallenge(null);
+    setView('dashboard');
+  };
+
+  const handleSelectChallenge = (challenge: ChallengeSeries) => {
+    setSelectedChallenge(challenge);
+    setView('quiz');
+  };
+
+  const handleBackToDashboard = () => {
+    setSelectedChallenge(null);
+    setView('dashboard');
   };
 
   const updateUser = (updates: Partial<User>) => {
@@ -106,12 +120,14 @@ export default function App() {
   if (isInitializing) return null;
 
   return (
-    <div className="min-h-screen bg-paper flex flex-col">
+    <div className="min-h-screen bg-paper flex flex-col animate-fadeIn">
       <Navbar 
         user={user} 
         onLogout={handleLogout} 
         onNavigate={setView}
         currentView={view}
+        selectedChallenge={selectedChallenge}
+        onBackToDashboard={handleBackToDashboard}
       />
 
       <main className="flex-grow">
@@ -136,9 +152,11 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
+              className="w-full"
             >
-              {view === 'quiz' && <Quiz user={user} onUpdateUser={updateUser} />}
-              {view === 'leaderboard' && <Leaderboard />}
+              {view === 'dashboard' && <ChallengesDashboard onSelectChallenge={handleSelectChallenge} />}
+              {view === 'quiz' && selectedChallenge && <Quiz user={user} onUpdateUser={updateUser} challenge={selectedChallenge} />}
+              {view === 'leaderboard' && selectedChallenge && <Leaderboard challenge={selectedChallenge} />}
               {view === 'notifs' && <NotificationSettings user={user} />}
               {view === 'admin' && user.isAdmin && <Admin />}
             </motion.div>

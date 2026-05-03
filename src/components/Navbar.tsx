@@ -1,48 +1,71 @@
 import React from 'react';
-import { User } from '../types';
-import { LogOut, BookOpen, BarChart3, Bell, Send } from 'lucide-react';
+import { User, ChallengeSeries } from '../types';
+import { LogOut, BookOpen, BarChart3, Bell, Send, LayoutDashboard } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface NavbarProps {
   user: User | null;
   onLogout: () => void;
-  onNavigate: (view: 'quiz' | 'leaderboard' | 'notifs' | 'admin') => void;
+  onNavigate: (view: 'dashboard' | 'quiz' | 'leaderboard' | 'notifs' | 'admin') => void;
   currentView: string;
+  selectedChallenge: ChallengeSeries | null;
+  onBackToDashboard: () => void;
 }
 
-export default function Navbar({ user, onLogout, onNavigate, currentView }: NavbarProps) {
+export default function Navbar({ user, onLogout, onNavigate, currentView, selectedChallenge, onBackToDashboard }: NavbarProps) {
   return (
     <nav className="border-b border-ink/10 bg-paper/80 backdrop-blur-md sticky top-0 z-50">
       <div className="max-w-6xl mx-auto px-6 h-20 flex items-center justify-between">
         <div 
-          onClick={() => onNavigate('quiz')}
+          onClick={() => {
+            if (selectedChallenge) {
+              onBackToDashboard();
+            } else {
+              onNavigate('dashboard');
+            }
+          }}
           className="flex items-center gap-2 cursor-pointer group"
         >
           <div className="w-10 h-10 bg-ink text-paper flex items-center justify-center rounded-lg font-serif text-2xl font-bold group-hover:bg-accent transition-colors">DQ</div>
-          <h1 className="hidden md:block text-2xl font-serif tracking-tight">Daily Quiz</h1>
+          <h1 className="hidden md:block text-2xl font-serif tracking-tight">
+            {selectedChallenge ? selectedChallenge.title : 'Daily Quiz'}
+          </h1>
         </div>
 
         {user && (
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-1 md:gap-4 h-full">
               <NavButton 
-                active={currentView === 'quiz'} 
-                onClick={() => onNavigate('quiz')}
-                icon={<BookOpen size={20} />}
-                label="Daily Quiz"
+                active={currentView === 'dashboard'} 
+                onClick={onBackToDashboard}
+                icon={<LayoutDashboard size={20} />}
+                label="Challenges"
               />
-              <NavButton 
-                active={currentView === 'leaderboard'} 
-                onClick={() => onNavigate('leaderboard')}
-                icon={<BarChart3 size={20} />}
-                label="Leaderboard"
-              />
+              
+              {selectedChallenge && (
+                <>
+                  <NavButton 
+                    active={currentView === 'quiz'} 
+                    onClick={() => onNavigate('quiz')}
+                    icon={<BookOpen size={20} />}
+                    label="Quiz Question"
+                  />
+                  <NavButton 
+                    active={currentView === 'leaderboard'} 
+                    onClick={() => onNavigate('leaderboard')}
+                    icon={<BarChart3 size={20} />}
+                    label="Leaderboard"
+                  />
+                </>
+              )}
+
               <NavButton 
                 active={currentView === 'notifs'} 
                 onClick={() => onNavigate('notifs')}
                 icon={<Bell size={20} />}
                 label="Notifications"
               />
+              
               {user.isAdmin && (
                 <NavButton 
                   active={currentView === 'admin'} 

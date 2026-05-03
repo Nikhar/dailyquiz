@@ -8,6 +8,7 @@ export interface User {
 
 export interface QuizData {
   id: number;
+  challengeId?: string;
   question: string;
   correctAnswers: string[];
   date: string;
@@ -21,6 +22,7 @@ export interface LeaderboardEntry {
 
 export interface AdminReviewFlag {
   id: string;
+  challengeId: string;
   userId: string;
   username: string;
   quizDate: string;
@@ -29,4 +31,14 @@ export interface AdminReviewFlag {
   flaggedAt: any;
   isPending: boolean;
   approved: boolean;
+}
+
+export interface ChallengeSeries {
+  id: string;
+  title: string;
+  description: string;
+  startDate: string;
+  endDate: string;
+  isActive: boolean;
+  createdAt: any;
 }

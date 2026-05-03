@@ -51,26 +51,31 @@ service cloud.firestore {
       );
     }
 
-    // --- Quiz Validation ---
-    match /quizzes/{quizDate} {
-      allow get: if isSignedIn() && isValidId(quizDate);
-      allow list: if isSignedIn();
+    // --- Multi-Challenge Platforms & Validation ---
+    match /challenges/{challengeId} {
+      allow read, list: if isSignedIn();
       allow write: if isAdmin();
-      
-      // Responses subcollection
-      match /responses/{userId} {
-        allow get: if isOwner(userId);
-        allow create: if isOwner(userId) && 
-                        incoming().keys().hasAll(['userId', 'quizId', 'isCorrect', 'answeredAt']) &&
-                        incoming().answeredAt == request.time &&
-                        exists(/databases/$(database)/documents/quizzes/$(quizDate));
-      }
-    }
 
-    // --- Leaderboard ---
-    match /leaderboard/{userId} {
-      allow read: if isSignedIn();
-      allow write: if isOwner(userId);
+      match /quizzes/{quizDate} {
+        allow get: if isSignedIn() && isValidId(quizDate);
+        allow list: if isSignedIn();
+        allow write: if isAdmin();
+        
+        // Responses subcollection
+        match /responses/{userId} {
+          allow get: if isOwner(userId);
+          allow create: if isOwner(userId) && 
+                          incoming().keys().hasAll(['userId', 'quizId', 'isCorrect', 'answeredAt']) &&
+                          incoming().answeredAt == request.time &&
+                          exists(/databases/$(database)/documents/challenges/$(challengeId)/quizzes/$(quizDate));
+        }
+      }
+
+      // Series-specific leaderboards
+      match /leaderboard/{userId} {
+        allow read, list: if isSignedIn();
+        allow write: if isOwner(userId);
+      }
     }
 
     // --- Admin Review Flags ---
