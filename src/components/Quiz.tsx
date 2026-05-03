@@ -44,7 +44,7 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
   const [quiz, setQuiz] = useState<QuizData | null>(null);
   const [solved, setSolved] = useState(false);
   const [typedAnswer, setTypedAnswer] = useState('');
-  const [result, setResult] = useState<{ isCorrect: boolean; explanation: string } | null>(null);
+  const [result, setResult] = useState<{ isCorrect: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
   
   const [flagged, setFlagged] = useState(false);
@@ -113,8 +113,7 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
         setSolved(true);
         const respData = responseSnap.data();
         setResult({
-          isCorrect: respData.isCorrect,
-          explanation: targetQuiz.explanation || ''
+          isCorrect: respData.isCorrect
         });
       }
     }, (e) => {
@@ -145,37 +144,11 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
     const quizPath = `challenges/${challenge.id}/quizzes/${today}`;
     const quizRef = doc(db, 'challenges', challenge.id, 'quizzes', today);
     
+    // 1. Concurrent parallel stream for the daily question doc
     unsubQuiz.current = onSnapshot(quizRef, (quizSnap) => {
       if (quizSnap.exists()) {
         const quizData = { id: 0, ...quizSnap.data() } as QuizData;
         setQuiz(quizData);
-        
-        // Listen to Player response document in real-time Cache-First
-        const responseRef = doc(db, 'challenges', challenge.id, 'quizzes', today, 'responses', user.id);
-        unsubResp.current = onSnapshot(responseRef, (responseSnap) => {
-          if (responseSnap.exists()) {
-            setSolved(true);
-            const respData = responseSnap.data();
-            setResult({
-              isCorrect: respData.isCorrect,
-              explanation: quizData.explanation || ''
-            });
-          }
-        }, (e) => {
-          console.error("Failed response onSnapshot subscriber stream", e);
-        });
-
-        // Listen to User Flag reviews today in real-time Cache-First
-        const flagQuery = query(
-          collection(db, 'admin_reviews'),
-          where('userId', '==', user.id),
-          where('quizDate', '==', today)
-        );
-        unsubFlag.current = onSnapshot(flagQuery, (flagSnap) => {
-          setFlagged(!flagSnap.empty);
-        }, (e) => {
-          console.error("Failed flagged reviews onSnapshot subscriber stream", e);
-        });
       } else {
         setQuiz(null);
       }
@@ -183,6 +156,32 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
     }, (err) => {
       handleFirestoreError(err, OperationType.GET, quizPath);
       setLoading(false);
+    });
+
+    // 2. Parallel Cache-First player responses stream
+    const responseRef = doc(db, 'challenges', challenge.id, 'quizzes', today, 'responses', user.id);
+    unsubResp.current = onSnapshot(responseRef, (responseSnap) => {
+      if (responseSnap.exists()) {
+        setSolved(true);
+        const respData = responseSnap.data();
+        setResult({
+          isCorrect: respData.isCorrect
+        });
+      }
+    }, (e) => {
+      console.error("Failed response onSnapshot subscriber stream", e);
+    });
+
+    // 3. Parallel user flagged review flags stream
+    const flagQuery = query(
+      collection(db, 'admin_reviews'),
+      where('userId', '==', user.id),
+      where('quizDate', '==', today)
+    );
+    unsubFlag.current = onSnapshot(flagQuery, (flagSnap) => {
+      setFlagged(!flagSnap.empty);
+    }, (e) => {
+      console.error("Failed flagged reviews onSnapshot subscriber stream", e);
     });
   };
 
@@ -196,8 +195,7 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
     // 🛡️ Freezing database score updates if solving an archived/past challenge quiz
     if (isPastChallenge) {
       setResult({
-        isCorrect,
-        explanation: quiz.explanation || ''
+        isCorrect
       });
       setSolved(true);
       return;
@@ -243,8 +241,7 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
         }, { merge: true });
 
         setResult({
-          isCorrect,
-          explanation: quiz.explanation || ''
+          isCorrect
         });
         setSolved(true);
         onUpdateUser({ score: newGlobalScore, solved_today: true });
@@ -369,9 +366,9 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
                 )}
               </div>
               
-              {result.explanation && (
+              {solved && quiz?.explanation && (
                 <p className="text-ink/70 leading-relaxed italic text-lg border-l-4 border-ink/10 pl-6">
-                  {result.explanation}
+                  {quiz.explanation}
                 </p>
               )}
               
