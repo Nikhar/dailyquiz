@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { QuizData, User } from '../types';
 import { CheckCircle2, XCircle, Trophy } from 'lucide-react';
 import { db, auth } from '../lib/firebase';
-import { doc, getDoc, setDoc, serverTimestamp, runTransaction } from 'firebase/firestore';
+import { doc, getDoc, serverTimestamp, runTransaction } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../App';
 
 interface QuizProps {
@@ -50,31 +50,11 @@ export default function Quiz({ user, onUpdateUser }: QuizProps) {
         } catch (e) {
           handleFirestoreError(e, OperationType.GET, responsePath);
         }
-      } else {
-        // Optional: Seed for demo if no quiz exists
-        await seedDefaultQuiz(today);
       }
     } catch (err) {
       handleFirestoreError(err, OperationType.GET, quizPath);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const seedDefaultQuiz = async (date: string) => {
-    const verboseQuestion = `In the grand tapestry of human endeavor, few disciplines offer as profound a reconciliation between the abstract and the tangible as architecture... [Truncated for brevity in seeding code, but you get the idea]`;
-    const defaultQuiz = {
-      date,
-      question: "Considering the architectural evolution of the Renaissance, which structural element allowed for massive domes to be placed upon square bases, essentially reconciling circular and rectilinear geometries through curved triangular sections?",
-      options: ['The Flying Buttress', 'The Pointed Arch', 'The Pendentive', 'The Groin Vault'],
-      correctIndex: 2,
-      explanation: 'The pendentive is a constructive device permitting the placing of a circular dome over a square room or an elliptical dome over a rectangular room.'
-    };
-    try {
-      await setDoc(doc(db, 'quizzes', date), defaultQuiz);
-      setQuiz({ id: 0, ...defaultQuiz } as any);
-    } catch (e) {
-        console.error("Failed to seed", e);
     }
   };
 
