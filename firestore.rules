@@ -46,9 +46,9 @@ service cloud.firestore {
       allow get: if isSignedIn();
       allow create: if isOwner(userId) && isValidUser(incoming());
       allow update: if isOwner(userId) && isValidUser(incoming()) && (
-        incoming().diff(existing()).affectedKeys().hasOnly(['score', 'last_solved_at', 'notif_opt_in']) &&
-        incoming().score >= existing().score && // Prevent score regression
-        incoming().score <= existing().score + 15 // Prevent massive artificial score inflation
+        incoming().diff(existing()).affectedKeys().hasOnly(['score', 'last_solved_at', 'notif_opt_in', 'currentStreak', 'maxStreak']) &&
+        incoming().score >= existing().score &&
+        incoming().score <= existing().score + 15
       );
     }
 

@@ -4,6 +4,8 @@ export interface User {
   score: number;
   solved_today?: boolean;
   isAdmin?: boolean;
+  currentStreak?: number;
+  maxStreak?: number;
 }
 
 export interface QuizData {

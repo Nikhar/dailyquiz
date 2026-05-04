@@ -75,11 +75,24 @@ export default function App() {
           
           if (userSnap.exists()) {
             const data = userSnap.data();
+            const todayStr = new Date().toISOString().split('T')[0];
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayStr = yesterday.toISOString().split('T')[0];
+            
+            const lastSolved = data.last_solved_at;
+            let activeStreak = data.currentStreak || 0;
+            if (lastSolved && lastSolved !== todayStr && lastSolved !== yesterdayStr) {
+              activeStreak = 0;
+            }
+
             setUser({
               id: fbUser.uid,
               username: data.username,
               score: data.score,
-              solved_today: data.last_solved_at === new Date().toISOString().split('T')[0],
+              solved_today: lastSolved === todayStr,
+              currentStreak: activeStreak,
+              maxStreak: data.maxStreak || 0,
               isAdmin: adminSnap.exists()
             });
           }

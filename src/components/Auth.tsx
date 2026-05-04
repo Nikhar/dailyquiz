@@ -35,16 +35,36 @@ export default function Auth({ onSuccess }: AuthProps) {
           id: fbUser.uid,
           username: fbUser.displayName || fbUser.email?.split('@')[0] || 'Anonymous',
           score: 0,
-          solved_today: false
+          solved_today: false,
+          currentStreak: 0,
+          maxStreak: 0
         };
-        await setDoc(userRef, userData);
+        await setDoc(userRef, {
+          username: userData.username,
+          score: userData.score,
+          currentStreak: 0,
+          maxStreak: 0
+        });
       } else {
         const data = userSnap.data();
+        const todayStr = new Date().toISOString().split('T')[0];
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().split('T')[0];
+        
+        const lastSolved = data.last_solved_at;
+        let activeStreak = data.currentStreak || 0;
+        if (lastSolved && lastSolved !== todayStr && lastSolved !== yesterdayStr) {
+          activeStreak = 0;
+        }
+
         userData = {
           id: fbUser.uid,
           username: data.username,
           score: data.score,
-          solved_today: data.last_solved_at === new Date().toISOString().split('T')[0]
+          solved_today: lastSolved === todayStr,
+          currentStreak: activeStreak,
+          maxStreak: data.maxStreak || 0
         };
       }
       

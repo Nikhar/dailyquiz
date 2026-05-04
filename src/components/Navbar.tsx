@@ -74,7 +74,17 @@ export default function Navbar({ user, onLogout, onNavigate, currentView, select
             <div className="flex items-center gap-4">
               <div className="hidden sm:block text-right">
                 <div className="text-sm font-serif line-clamp-1">{user.username}</div>
-                <div className="text-[10px] uppercase tracking-widest text-muted">{user.score} Points</div>
+                <div className="text-[10px] uppercase tracking-widest text-muted flex items-center justify-end gap-2">
+                  <span>{user.score} Points</span>
+                  {user.currentStreak !== undefined && user.currentStreak > 0 && (
+                    <span 
+                      title={`Daily Streak: ${user.currentStreak} days (Max: ${user.maxStreak || 0})`}
+                      className="text-orange-600 font-bold bg-orange-50 px-1.5 py-0.5 rounded-md border border-orange-100 flex items-center gap-0.5 animate-pulse select-none"
+                    >
+                      🔥 {user.currentStreak}
+                    </span>
+                  )}
+                </div>
               </div>
               <button 
                 onClick={onLogout}

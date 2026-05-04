@@ -302,9 +302,28 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
         const leaderboardSnap = await transaction.get(leaderboardRef);
 
         // 2. Process data state calculations
-        const newGlobalScore = (userSnap.exists() ? (userSnap.data().score || 0) : user.score) + scoreInc;
+        const userData = userSnap.exists() ? userSnap.data() : null;
+        const newGlobalScore = (userData ? (userData.score || 0) : user.score) + scoreInc;
         const currentChallengeScore = leaderboardSnap.exists() ? (leaderboardSnap.data().score || 0) : 0;
         const newChallengeScore = currentChallengeScore + scoreInc;
+
+        // Daily Streak Calculation
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+        let currentStreak = userData ? (userData.currentStreak || 0) : 0;
+        let maxStreak = userData ? (userData.maxStreak || 0) : 0;
+        const lastSolved = userData ? userData.last_solved_at : null;
+
+        if (lastSolved === yesterdayStr) {
+          currentStreak += 1;
+        } else if (lastSolved === today) {
+          // GRACEFUL RETAKE AND DUPLICATE WORKarounds
+        } else {
+          currentStreak = 1;
+        }
+        maxStreak = Math.max(currentStreak, maxStreak);
 
         // 3. Queue standard database writes
         transaction.set(responseRef, {
@@ -318,7 +337,9 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
 
         transaction.update(userRef, {
           score: newGlobalScore,
-          last_solved_at: today
+          last_solved_at: today,
+          currentStreak,
+          maxStreak
         });
 
         transaction.set(leaderboardRef, {
@@ -332,7 +353,7 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
           pointsEarned: scoreInc
         });
         setSolved(true);
-        onUpdateUser({ score: newGlobalScore, solved_today: true });
+        onUpdateUser({ score: newGlobalScore, solved_today: true, currentStreak, maxStreak });
       });
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, writePath);
