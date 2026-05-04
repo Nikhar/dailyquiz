@@ -50,6 +50,7 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
   const [flagged, setFlagged] = useState(false);
   const [flagLoading, setFlagLoading] = useState(false);
   const questionViewedAt = useRef<number | null>(null);
+  const [timerDisplay, setTimerDisplay] = useState<string>('0s');
   
   // Completed/Past series archive states
   const [pastQuizzesList, setPastQuizzesList] = useState<QuizData[]>([]);
@@ -110,6 +111,27 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
 
     return () => cleanSubscriptions();
   }, [challenge.id]);
+
+  useEffect(() => {
+    if (!challenge.isTimed || !quiz || solved) return;
+
+    const interval = setInterval(() => {
+      if (!questionViewedAt.current) return;
+      
+      const elapsedSeconds = Math.floor((Date.now() - questionViewedAt.current) / 1000);
+      
+      if (elapsedSeconds >= 285) {
+        setTimerDisplay("Threshold+");
+        clearInterval(interval);
+      } else {
+        const mins = Math.floor(elapsedSeconds / 60);
+        const secs = elapsedSeconds % 60;
+        setTimerDisplay(mins > 0 ? `${mins}m ${secs}s` : `${secs}s`);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [challenge.isTimed, quiz, solved]);
 
   const fetchPastQuizzesArchive = async () => {
     setLoading(true);
@@ -382,6 +404,12 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
               className="text-xs text-accent font-serif font-bold hover:underline cursor-pointer mt-2 inline-block select-none"
             >
               ⚡ This is a timed challenge, faster you are, higher you score. Click here for scoring formula/explanation
+            </div>
+          )}
+          {challenge.isTimed && !solved && (
+            <div className="text-center py-2 mt-4">
+              <div className="text-xs uppercase tracking-widest text-muted">Time Elapsed</div>
+              <div className="text-3xl font-serif mt-1 tabular-nums text-ink">{timerDisplay}</div>
             </div>
           )}
         </header>
