@@ -77,7 +77,7 @@ service cloud.firestore {
         allow read, list: if isSignedIn();
         allow write: if isOwner(userId) && (
           incoming().score <= (resource == null ? 15 : existing().score + 15) &&
-          (resource == null || incoming().last_solved_at != existing().last_solved_at)
+          (resource == null || !('last_solved_at' in existing()) || incoming().last_solved_at != existing().last_solved_at)
         );
       }
     }
