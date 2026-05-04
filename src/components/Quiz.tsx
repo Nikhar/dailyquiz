@@ -301,7 +301,8 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
 
         transaction.set(leaderboardRef, {
           username: user.username,
-          score: newChallengeScore
+          score: newChallengeScore,
+          last_solved_at: today
         }, { merge: true });
 
         setResult({

@@ -47,7 +47,8 @@ service cloud.firestore {
       allow create: if isOwner(userId) && isValidUser(incoming());
       allow update: if isOwner(userId) && isValidUser(incoming()) && (
         incoming().diff(existing()).affectedKeys().hasOnly(['score', 'last_solved_at', 'notif_opt_in']) &&
-        incoming().score >= existing().score // Prevent score regression
+        incoming().score >= existing().score && // Prevent score regression
+        incoming().score <= existing().score + 15 // Prevent massive artificial score inflation
       );
     }
 
@@ -74,7 +75,10 @@ service cloud.firestore {
       // Series-specific leaderboards
       match /leaderboard/{userId} {
         allow read, list: if isSignedIn();
-        allow write: if isOwner(userId);
+        allow write: if isOwner(userId) && (
+          incoming().score <= (resource == null ? 15 : existing().score + 15) &&
+          (resource == null || incoming().last_solved_at != existing().last_solved_at)
+        );
       }
     }
 
