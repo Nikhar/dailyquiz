@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { QuizData, User, ChallengeSeries } from '../types';
 import { CheckCircle2, XCircle, Trophy, Flag, AlertCircle } from 'lucide-react';
 import { db } from '../lib/firebase';
-import { doc, getDoc, getDocs, addDoc, collection, query, where, serverTimestamp, runTransaction, orderBy, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, getDocs, addDoc, setDoc, collection, query, where, serverTimestamp, runTransaction, orderBy, onSnapshot } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../App';
 
 function calculateLevenshteinDistance(a: string, b: string): number {
@@ -66,6 +66,35 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
     if (unsubFlag.current) { unsubFlag.current(); unsubFlag.current = null; }
   };
 
+  const syncQuizViewTimestamp = async (challengeId: string, dateStr: string) => {
+    if (!challenge.isTimed) {
+      questionViewedAt.current = Date.now();
+      return;
+    }
+    const viewId = `${challengeId}_${dateStr}_${user.id}`;
+    const viewRef = doc(db, 'quiz_views', viewId);
+    try {
+      const viewSnap = await getDoc(viewRef);
+      if (viewSnap.exists()) {
+        questionViewedAt.current = viewSnap.data().viewedAt;
+      } else {
+        const nowMs = Date.now();
+        await setDoc(viewRef, {
+          userId: user.id,
+          challengeId,
+          quizDate: dateStr,
+          viewedAt: nowMs
+        });
+        questionViewedAt.current = nowMs;
+      }
+    } catch (e) {
+      console.error("Failed to sync quiz view anti-cheat timestamp", e);
+      if (!questionViewedAt.current) {
+        questionViewedAt.current = Date.now();
+      }
+    }
+  };
+
   useEffect(() => {
     const todayStr = new Date().toISOString().split('T')[0];
     const ended = !challenge.isActive || todayStr > challenge.endDate;
@@ -103,7 +132,7 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
     cleanSubscriptions();
     
     setQuiz(targetQuiz);
-    questionViewedAt.current = Date.now();
+    syncQuizViewTimestamp(challenge.id, targetQuiz.date);
     setSolved(false);
     setTypedAnswer('');
     setResult(null);
@@ -152,7 +181,7 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
       if (quizSnap.exists()) {
         const quizData = { id: 0, ...quizSnap.data() } as QuizData;
         setQuiz(quizData);
-        questionViewedAt.current = Date.now();
+        syncQuizViewTimestamp(challenge.id, today);
       } else {
         setQuiz(null);
       }

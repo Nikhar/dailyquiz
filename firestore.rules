@@ -84,5 +84,9 @@ service cloud.firestore {
       allow create: if isSignedIn() && isOwner(incoming().userId) && incoming().isPending == true;
       allow update: if isAdmin();
     }
+
+    match /quiz_views/{viewId} {
+      allow read, create: if isSignedIn();
+    }
   }
 }
