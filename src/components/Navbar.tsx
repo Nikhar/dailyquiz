@@ -59,13 +59,6 @@ export default function Navbar({ user, onLogout, onNavigate, currentView, select
                 </>
               )}
 
-              <NavButton 
-                active={currentView === 'notifs'} 
-                onClick={() => onNavigate('notifs')}
-                icon={<Bell size={20} />}
-                label="Notifications"
-              />
-              
               {user.isAdmin && (
                 <NavButton 
                   active={currentView === 'admin'} 

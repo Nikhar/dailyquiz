@@ -145,6 +145,17 @@ function ChallengeCard({ challenge, onSelect, isActiveSeries }: CardProps) {
         <div className="space-y-2">
           <h3 className="text-2xl md:text-3xl font-serif tracking-tight leading-tight group-hover:text-accent transition-colors">{challenge.title}</h3>
           <p className="text-muted font-serif italic text-sm leading-relaxed line-clamp-2 pr-4">"{challenge.description}"</p>
+          {challenge.isTimed && (
+            <p 
+              onClick={(e) => {
+                e.stopPropagation();
+                alert("⏱️ Timed Challenge Speed Scoring Breakdown:\n\n• Under 45 seconds: 15 Points (Full score)\n• After 45 seconds: Loses 1 point every 20 seconds\n• 5+ minutes: 3 Points (Guaranteed minimum floor)");
+              }}
+              className="text-xs text-accent font-serif font-bold mt-2 hover:underline cursor-pointer flex items-center gap-1"
+            >
+              ⚡ This is a timed challenge, faster you are, higher you score. Click here for scoring formula/explanation
+            </p>
+          )}
         </div>
       </div>
 

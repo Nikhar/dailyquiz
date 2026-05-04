@@ -21,6 +21,7 @@ export default function Admin() {
   const [seriesStart, setSeriesStart] = useState(new Date().toISOString().split('T')[0]);
   const [seriesEnd, setSeriesEnd] = useState(new Date().toISOString().split('T')[0]);
   const [seriesStatus, setSeriesStatus] = useState<'idle' | 'loading' | 'success'>('idle');
+  const [seriesIsTimed, setSeriesIsTimed] = useState(false);
   
   // Quizzes States
   const [challengesList, setChallengesList] = useState<ChallengeSeries[]>([]);
@@ -114,6 +115,7 @@ export default function Admin() {
         startDate: seriesStart,
         endDate: seriesEnd,
         isActive: true,
+        isTimed: seriesIsTimed,
         createdAt: serverTimestamp()
       });
       setSeriesStatus('success');
@@ -123,6 +125,7 @@ export default function Admin() {
         setSeriesDesc('');
         setSeriesStart(new Date().toISOString().split('T')[0]);
         setSeriesEnd(new Date().toISOString().split('T')[0]);
+        setSeriesIsTimed(false);
         fetchChallenges();
         setActiveTab('list');
       }, 1500);
@@ -532,6 +535,19 @@ export default function Admin() {
                     />
                   </div>
                 </div>
+              </div>
+
+              <div className="flex items-center justify-between p-6 bg-paper border border-ink/5 rounded-2xl">
+                <div className="space-y-1">
+                  <label className="block text-xs uppercase tracking-[0.2em] text-muted font-bold">Timed Challenge Mode</label>
+                  <p className="text-xs text-muted italic">Enable linear speed decay scoring (Max 15 pts down to Min 3 pts after a 45s grace window).</p>
+                </div>
+                <input 
+                  type="checkbox"
+                  checked={seriesIsTimed}
+                  onChange={(e) => setSeriesIsTimed(e.target.checked)}
+                  className="w-5 h-5 accent-ink cursor-pointer rounded"
+                />
               </div>
 
               <motion.button

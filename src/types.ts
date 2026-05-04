@@ -40,5 +40,6 @@ export interface ChallengeSeries {
   startDate: string;
   endDate: string;
   isActive: boolean;
+  isTimed?: boolean;
   createdAt: any;
 }

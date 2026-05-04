@@ -44,11 +44,12 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
   const [quiz, setQuiz] = useState<QuizData | null>(null);
   const [solved, setSolved] = useState(false);
   const [typedAnswer, setTypedAnswer] = useState('');
-  const [result, setResult] = useState<{ isCorrect: boolean } | null>(null);
+  const [result, setResult] = useState<{ isCorrect: boolean; pointsEarned?: number } | null>(null);
   const [loading, setLoading] = useState(true);
   
   const [flagged, setFlagged] = useState(false);
   const [flagLoading, setFlagLoading] = useState(false);
+  const questionViewedAt = useRef<number | null>(null);
   
   // Completed/Past series archive states
   const [pastQuizzesList, setPastQuizzesList] = useState<QuizData[]>([]);
@@ -102,6 +103,7 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
     cleanSubscriptions();
     
     setQuiz(targetQuiz);
+    questionViewedAt.current = Date.now();
     setSolved(false);
     setTypedAnswer('');
     setResult(null);
@@ -113,7 +115,8 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
         setSolved(true);
         const respData = responseSnap.data();
         setResult({
-          isCorrect: respData.isCorrect
+          isCorrect: respData.isCorrect,
+          pointsEarned: respData.pointsEarned !== undefined ? respData.pointsEarned : (respData.isCorrect ? 10 : 0)
         });
       }
     }, (e) => {
@@ -149,6 +152,7 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
       if (quizSnap.exists()) {
         const quizData = { id: 0, ...quizSnap.data() } as QuizData;
         setQuiz(quizData);
+        questionViewedAt.current = Date.now();
       } else {
         setQuiz(null);
       }
@@ -165,7 +169,8 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
         setSolved(true);
         const respData = responseSnap.data();
         setResult({
-          isCorrect: respData.isCorrect
+          isCorrect: respData.isCorrect,
+          pointsEarned: respData.pointsEarned !== undefined ? respData.pointsEarned : (respData.isCorrect ? 10 : 0)
         });
       }
     }, (e) => {
@@ -194,8 +199,23 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
 
     // 🛡️ Freezing database score updates if solving an archived/past challenge quiz
     if (isPastChallenge) {
+      const secondsElapsed = questionViewedAt.current ? Math.floor((Date.now() - questionViewedAt.current) / 1000) : 0;
+      let scoreInc = 0;
+      if (isCorrect) {
+        if (challenge.isTimed) {
+          scoreInc = 15;
+          if (secondsElapsed > 45) {
+            const extraTime = secondsElapsed - 45;
+            const pointsDeducted = Math.floor(extraTime / 20);
+            scoreInc = Math.max(3, 15 - pointsDeducted);
+          }
+        } else {
+          scoreInc = 10;
+        }
+      }
       setResult({
-        isCorrect
+        isCorrect,
+        pointsEarned: scoreInc
       });
       setSolved(true);
       return;
@@ -211,7 +231,20 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
         const leaderboardRef = doc(db, 'challenges', challenge.id, 'leaderboard', user.id);
         const responseRef = doc(db, 'challenges', challenge.id, 'quizzes', today, 'responses', user.id);
 
-        const scoreInc = isCorrect ? 10 : 0;
+        const secondsElapsed = questionViewedAt.current ? Math.floor((Date.now() - questionViewedAt.current) / 1000) : 0;
+        let scoreInc = 0;
+        if (isCorrect) {
+          if (challenge.isTimed) {
+            scoreInc = 15;
+            if (secondsElapsed > 45) {
+              const extraTime = secondsElapsed - 45;
+              const pointsDeducted = Math.floor(extraTime / 20);
+              scoreInc = Math.max(3, 15 - pointsDeducted);
+            }
+          } else {
+            scoreInc = 10;
+          }
+        }
         
         // 1. Perform ALL reads first
         const userSnap = await transaction.get(userRef);
@@ -227,7 +260,9 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
           userId: user.id,
           quizId: today,
           isCorrect,
-          answeredAt: serverTimestamp()
+          answeredAt: serverTimestamp(),
+          secondsElapsed: challenge.isTimed ? secondsElapsed : null,
+          pointsEarned: scoreInc
         });
 
         transaction.update(userRef, {
@@ -241,7 +276,8 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
         }, { merge: true });
 
         setResult({
-          isCorrect
+          isCorrect,
+          pointsEarned: scoreInc
         });
         setSolved(true);
         onUpdateUser({ score: newGlobalScore, solved_today: true });
@@ -310,10 +346,18 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
           <div className="text-xs uppercase tracking-[0.3em] text-muted">Quiz for {new Date(quiz.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
           <h2 className="text-4xl md:text-5xl font-serif text-ink leading-tight">✍️ Series Question</h2>
           <div className="w-24 h-px bg-ink/10 mx-auto"></div>
+          {challenge.isTimed && (
+            <div 
+              onClick={() => alert("⏱️ Timed Challenge Speed Scoring Breakdown:\n\n• Under 45 seconds: 15 Points (Full score)\n• After 45 seconds: Loses 1 point every 20 seconds\n• 5+ minutes: 3 Points (Guaranteed minimum floor)")}
+              className="text-xs text-accent font-serif font-bold hover:underline cursor-pointer mt-2 inline-block select-none"
+            >
+              ⚡ This is a timed challenge, faster you are, higher you score. Click here for scoring formula/explanation
+            </div>
+          )}
         </header>
 
         <section className="prose prose-xl max-w-none">
-          <p className="text-xl md:text-2xl font-serif leading-relaxed text-ink/90 italic">
+          <p className="text-xl md:text-2xl font-serif leading-relaxed text-ink/90 italic whitespace-pre-line">
             {quiz.question}
           </p>
         </section>
@@ -374,7 +418,7 @@ export default function Quiz({ user, onUpdateUser, challenge }: QuizProps) {
               
               <div className="text-center pt-4">
                 <div className="text-xs uppercase tracking-widest text-muted">Points</div>
-                <div className="text-3xl font-serif mt-1">+{result.isCorrect ? 10 : 0}</div>
+                <div className="text-3xl font-serif mt-1">+{result.pointsEarned !== undefined ? result.pointsEarned : (result.isCorrect ? 10 : 0)}</div>
               </div>
 
               {!result.isCorrect && (

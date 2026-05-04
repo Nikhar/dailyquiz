@@ -55,6 +55,12 @@ export default function App() {
   const [view, setView] = useState<'dashboard' | 'quiz' | 'leaderboard' | 'notifs' | 'admin'>('dashboard');
   const [selectedChallenge, setSelectedChallenge] = useState<ChallengeSeries | null>(null);
 
+  const localTimeStr = (() => {
+    const date = new Date();
+    date.setUTCHours(0, 0, 0, 0);
+    return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+  })();
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser) {
@@ -139,7 +145,7 @@ export default function App() {
               className="text-center mb-12 space-y-4"
             >
               <h1 className="text-6xl md:text-7xl font-serif tracking-tighter">Quizzing with Nikhar</h1>
-              <p className="text-xl text-muted italic max-w-lg mx-auto">One interesting question, every single day. Test your knowledge and climb the leaderboard.</p>
+              <p className="text-xl text-muted italic max-w-lg mx-auto">One interesting question, every single day at {localTimeStr}. Test your knowledge and climb the leaderboard.</p>
             </motion.div>
             <Auth onSuccess={handleAuthSuccess} />
             <div className="mt-12 text-center text-[10px] uppercase tracking-[0.4em] text-ink/20 font-bold">Est. MMXXVI</div>
